@@ -116,7 +116,7 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
 
             @Override
             public void onStartScan() {
-                Toast.makeText(getApplicationContext(),"Searching for OpenHaldex32 module",Toast.LENGTH_SHORT).show();
+                Toast.makeText(getApplicationContext(),"Searching for OpenHaldex32 module...",Toast.LENGTH_SHORT).show();
             }
 
             @Override
@@ -672,7 +672,10 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
                         else{
                             Toast.makeText(getApplicationContext(), "Booted in custom mode, deselected in App but active",Toast.LENGTH_SHORT).show();
                             ToggleButton previous_selection = findViewById(selected_mode_button);
-                            previous_selection.setChecked(false);
+                            if (previous_selection != null)
+                            {
+                                previous_selection.setChecked(false);
+                            }
                             unknown_mode = true;
                         }
                         Toast.makeText(getApplicationContext(), String.format(Locale.ENGLISH, "Pedal threshold for Haldex activation set to %d%%", pedal_threshold),Toast.LENGTH_SHORT).show();
