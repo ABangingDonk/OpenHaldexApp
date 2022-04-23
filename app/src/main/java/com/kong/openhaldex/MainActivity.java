@@ -138,6 +138,14 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
                     Toast.makeText(getApplicationContext(),"Connected to OpenHaldex32",Toast.LENGTH_SHORT).show();
                 } else if (status == BluetoothStatus.CONNECTING){
                     Log.i(TAG, "startBT: connecting....");
+                } else {
+                    ToggleButton button = findViewById(R.id.connect_button);
+                    button.setChecked(false);
+                    Toast.makeText(getApplicationContext(),"Disconnected from OpenHaldex32",Toast.LENGTH_SHORT).show();
+
+                    btStatus.removeCallbacks(btStatusRunnable);
+                    modeCheck.removeCallbacks(modeCheckRunnable);
+                    lockPointCheck.removeCallbacks(lockPointCheckRunnable);
                 }
             }
 
@@ -587,13 +595,13 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
                 }
                 else
                 {
-                    haldex_status_label.setText(String.format(Locale.ENGLISH,"Actual: %02d%%", (int)haldex_lock));
+                    haldex_status_label.setText(String.format(Locale.ENGLISH,"Actual: %d%%", (int)haldex_lock));
                 }
                 if(current_mode == null || current_mode.name.equals("Stock")){
                     target_lock_label.setText("");
                 }
                 else{
-                    target_lock_label.setText(String.format(Locale.ENGLISH, "Target: %02d%%",(int)target_lock));
+                    target_lock_label.setText(String.format(Locale.ENGLISH, "Target: %d%%",(int)target_lock));
                 }
                 vehicle_speed_label.setText(String.format(Locale.ENGLISH, "%dKPH", (int)vehicle_speed));
 
@@ -642,6 +650,7 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
 
     private int receiveData(byte[] data, int len){
         int message_type = -1;
+        LinearLayout mode_button_container = findViewById(R.id.mode_button_container);
 
         if (len > 5){
             return message_type;
@@ -650,10 +659,10 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
         message_type = data[0];
         switch (message_type){
             case APP_MSG_STATUS: // 1
-                haldex_status = (char)data[1];
+                haldex_status = (char)((int)data[1] & 0xff);
                 haldex_lock = (char)((data[2] & 0x7f) * 100 / 72);
                 target_lock = (char)data[3];
-                vehicle_speed = (char)data[4];
+                vehicle_speed = (char)((int)data[4] & 0xff);
                 break;
             case APP_MSG_CUSTOM_CTRL: // 3
                 int message_code = data[1];
@@ -666,17 +675,11 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
                         int interceptor_mode = data[2];
                         pedal_threshold = data[3];
                         if (interceptor_mode <= 2){
-                            LinearLayout mode_button_container = findViewById(R.id.mode_button_container);
                             mode_button_click(mode_button_container.getChildAt(interceptor_mode));
                         }
                         else{
-                            Toast.makeText(getApplicationContext(), "Booted in custom mode, deselected in App but active",Toast.LENGTH_SHORT).show();
-                            ToggleButton previous_selection = findViewById(selected_mode_button);
-                            if (previous_selection != null)
-                            {
-                                previous_selection.setChecked(false);
-                            }
-                            unknown_mode = true;
+                            Toast.makeText(getApplicationContext(), "Connected with custom mode active.. select stock mode",Toast.LENGTH_SHORT).show();
+                            mode_button_click(mode_button_container.getChildAt(0));
                         }
                         Toast.makeText(getApplicationContext(), String.format(Locale.ENGLISH, "Pedal threshold for Haldex activation set to %d%%", pedal_threshold),Toast.LENGTH_SHORT).show();
                         break;
