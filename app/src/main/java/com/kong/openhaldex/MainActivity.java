@@ -59,12 +59,13 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
     private static char haldex_status = 0;
     private static char target_lock = 0;
     private static char vehicle_speed = 0;
-    private static int lockpoint_bitmask = 0;
-    private static int lockpoint_check_mask = 0;
+    private static int lockpoint_bitmask_l = 0;
+    private static int lockpoint_bitmask_h = 0;
     private static int pedal_threshold = 0;
     public Mode current_mode;
     private boolean unknown_mode = true;
     private static boolean custom_ready = false;
+    private static int retries = 3;
 
     Handler btStatus = new Handler();
     Runnable btStatusRunnable;
@@ -668,8 +669,10 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
                 int message_code = data[1];
                 switch (message_code) {
                     case DATA_CTRL_CHECK_LOCKPOINTS:
-                        lockpoint_check_mask = data[2] | (data[3] >> 8);
-                        custom_ready = lockpoint_check_mask == lockpoint_bitmask;
+                        int lockpoint_check_mask_l = data[2];
+                        int lockpoint_check_mask_h = data[3];
+                        Log.i(TAG, String.format("lockpoint check: check_l 0x%x mask_l 0x%x check_h 0x%x mask_h 0x%x", lockpoint_check_mask_l, lockpoint_bitmask_l, lockpoint_check_mask_h, lockpoint_bitmask_h));
+                        custom_ready = (lockpoint_check_mask_l == lockpoint_bitmask_l) && (lockpoint_check_mask_h == lockpoint_bitmask_h);
                         break;
                     case DATA_CTRL_CHECK_MODE:
                         int interceptor_mode = data[2];
@@ -707,22 +710,16 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
     }
 
     private void checkLockPoints(){
-        lockPointCheck.postDelayed(lockPointCheckRunnable = new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    bt_service.write(new byte[]{APP_MSG_CUSTOM_CTRL, DATA_CTRL_CHECK_LOCKPOINTS, SERIAL_FRAME_END});
-                }catch (Exception e){
-                    e.printStackTrace();
-                }
-            }
-        }, 100);
+        try {
+            bt_service.write(new byte[]{APP_MSG_CUSTOM_CTRL, DATA_CTRL_CHECK_LOCKPOINTS, SERIAL_FRAME_END});
+        }catch (Exception e){
+            e.printStackTrace();
+        }
     }
 
     private void sendData(final Mode mode){
         custom_ready = false;
         sendData.postDelayed(sendDataRunnable = new Runnable() {
-            int retries = 3;
             @Override
             public void run() {
                 if(retries-- != 0 && !custom_ready){
@@ -736,10 +733,17 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
                                     (byte)mode.lockPoints.get(i).intensity,
                                     SERIAL_FRAME_END
                             });
-                            lockpoint_bitmask |= 1 << i;
+                            if (i > 6)
+                            {
+                                lockpoint_bitmask_h |= (1 << (i - 7));
+                            }
+                            else
+                            {
+                                lockpoint_bitmask_l |= (1 << i);
+                            }
                         }
                         checkLockPoints();
-                        sendData.postDelayed(sendDataRunnable, 500);
+                        sendData.postDelayed(sendDataRunnable, 5000);
                     }catch (Exception e){
                         e.printStackTrace();
                     }
@@ -757,7 +761,8 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
     private void sendModeClear(){
         try{
             bt_service.write(new byte[]{APP_MSG_CUSTOM_CTRL, DATA_CTRL_CLEAR, SERIAL_FRAME_END});
-            lockpoint_bitmask = 0;
+            lockpoint_bitmask_l = 0;
+            lockpoint_bitmask_h = 0;
         }catch (Exception e){
             e.printStackTrace();
         }
