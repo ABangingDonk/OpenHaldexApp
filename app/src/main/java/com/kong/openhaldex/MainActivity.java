@@ -18,6 +18,7 @@ import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentTransaction;
 import androidx.appcompat.app.AppCompatActivity;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.util.Log;
 import android.view.View;
 import android.view.Window;
@@ -70,6 +71,9 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
     Handler btStatus = new Handler();
     Runnable btStatusRunnable;
     int btStatusDelay = 500;
+    Handler displayUpdate = new Handler();
+    Runnable displayUpdateRunnable;
+    int displayUpdateDelay = 100;
     Handler modeCheck = new Handler();
     Runnable modeCheckRunnable;
     Handler lockPointCheck = new Handler();
@@ -583,6 +587,22 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
                     button.setChecked(true);
                     sendMode();
                 }
+
+                if(current_mode == null && unknown_mode){
+                    try{
+                        bt_service.write(new byte[]{APP_MSG_CUSTOM_CTRL, DATA_CTRL_CHECK_MODE, SERIAL_FRAME_END});
+                    }catch (Exception e){
+                        e.printStackTrace();
+                    }
+                }
+
+                btStatus.postDelayed(btStatusRunnable, btStatusDelay);
+            }
+        }, btStatusDelay);
+
+        displayUpdate.postDelayed(displayUpdateRunnable = new Runnable() {
+            @Override
+            public void run() {
                 ProgressBar haldex_status_bar = findViewById(R.id.lock_percent_bar);
                 TextView haldex_status_label = findViewById(R.id.lock_percent_label);
                 TextView target_lock_label = findViewById(R.id.lock_target_label);
@@ -606,17 +626,9 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
                 }
                 vehicle_speed_label.setText(String.format(Locale.ENGLISH, "%dKPH", (int)vehicle_speed));
 
-                if(current_mode == null && unknown_mode){
-                    try{
-                        bt_service.write(new byte[]{APP_MSG_CUSTOM_CTRL, DATA_CTRL_CHECK_MODE, SERIAL_FRAME_END});
-                    }catch (Exception e){
-                        e.printStackTrace();
-                    }
-                }
-
-                btStatus.postDelayed(btStatusRunnable, btStatusDelay);
+                displayUpdate.postDelayed(displayUpdateRunnable, displayUpdateDelay);
             }
-        }, btStatusDelay);
+        }, displayUpdateDelay);
     }
 
     public void connect_button_click(View view){
@@ -649,6 +661,8 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
 
     private final byte SERIAL_FRAME_END = (byte)0xff;
 
+    long last_status_time = SystemClock.elapsedRealtime();
+
     private int receiveData(byte[] data, int len){
         int message_type = -1;
         LinearLayout mode_button_container = findViewById(R.id.mode_button_container);
@@ -664,6 +678,8 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
                 haldex_lock = (char)((data[2] & 0x7f) * 100 / 72);
                 target_lock = (char)data[3];
                 vehicle_speed = (char)((int)data[4] & 0xff);
+                Log.i(TAG, String.format("Got status from OpenHaldex32 %d", (SystemClock.elapsedRealtime() - last_status_time)));
+                last_status_time = SystemClock.elapsedRealtime();
                 break;
             case APP_MSG_CUSTOM_CTRL: // 3
                 int message_code = data[1];
@@ -749,6 +765,7 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
                     }
                 }
                 else if (custom_ready){
+                    sendData.removeCallbacks(sendDataRunnable);
                     sendMode();
                 }
                 else {
