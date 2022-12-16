@@ -869,8 +869,6 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
     }
 
     private void startBT(){
-
-
         if (checkBTStatus() &&
             checkPermission(Manifest.permission.BLUETOOTH, 2) &&
             checkPermission(Manifest.permission.BLUETOOTH_CONNECT, 3) &&
