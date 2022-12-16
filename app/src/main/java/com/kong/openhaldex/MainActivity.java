@@ -2,6 +2,7 @@ package com.kong.openhaldex;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
+import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothSocket;
 import android.content.Context;
@@ -67,6 +68,7 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
     private boolean unknown_mode = true;
     private static boolean custom_ready = false;
     private static int retries = 3;
+    Toast toastMessage;
 
     Handler btStatus = new Handler();
     Runnable btStatusRunnable;
@@ -83,6 +85,16 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
 
     public ArrayList<Mode> ModeList;
 
+    private void makeToast(String message)
+    {
+        if (toastMessage != null)
+        {
+            toastMessage.cancel();
+        }
+        toastMessage = Toast.makeText(getApplicationContext(), message, Toast.LENGTH_SHORT);
+        toastMessage.show();
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -97,7 +109,7 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
         bt_config.bluetoothServiceClass = BluetoothClassicService.class;
         bt_config.bufferSize = 1024;
         bt_config.characterDelimiter = 0xff;
-        bt_config.deviceName = "OpenHaldex32 CC";
+        bt_config.deviceName = "OpenHaldex CC";
         bt_config.callListenersInMainThread = true;
 
         bt_config.uuid = UUID.fromString("00001101-0000-1000-8000-00805f9b34fb"); // Required
@@ -110,23 +122,26 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
             @SuppressLint("MissingPermission")
             @Override
             public void onDeviceDiscovered(BluetoothDevice device, int rssi) {
-                if (device != null){
-                    if (device.getName().equals("OpenHaldex32")){
+                if (device != null && device.getName() != null){
+                    if (device.getName().equals("OpenHaldex32") || device.getName().equals("OpenHaldexT4")){
                         Log.i(TAG, String.format("startBT: device name = %s, RSSI = %d", device.getName(), rssi));
                         bt_device = device;
                         bt_service.connect(device);
                     }
                 }
+                else if (device.getName() == null){
+                    // Do some teardown of the BT.. dunno how yet
+                }
             }
 
             @Override
             public void onStartScan() {
-                Toast.makeText(getApplicationContext(),"Searching for OpenHaldex32 module...",Toast.LENGTH_SHORT).show();
+                makeToast("Searching for OpenHaldex module...");
             }
 
             @Override
             public void onStopScan() {
-                Toast.makeText(getApplicationContext(),"Finished searching",Toast.LENGTH_SHORT).show();
+                makeToast("Finished searching");
             }
         });
 
@@ -140,13 +155,13 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
             public void onStatusChange(BluetoothStatus status) {
                 if (status == BluetoothStatus.CONNECTED){
                     Log.i(TAG, "startBT: connected");
-                    Toast.makeText(getApplicationContext(),"Connected to OpenHaldex32",Toast.LENGTH_SHORT).show();
+                    makeToast("Connected to OpenHaldex");
                 } else if (status == BluetoothStatus.CONNECTING){
                     Log.i(TAG, "startBT: connecting....");
                 } else {
                     ToggleButton button = findViewById(R.id.connect_button);
                     button.setChecked(false);
-                    Toast.makeText(getApplicationContext(),"Disconnected from OpenHaldex32",Toast.LENGTH_SHORT).show();
+                    makeToast("Disconnected from OpenHaldex");
 
                     btStatus.removeCallbacks(btStatusRunnable);
                     modeCheck.removeCallbacks(modeCheckRunnable);
@@ -228,15 +243,15 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
             case DELETE_MODE_DIALOG:
                 Mode deletedMode = ModeList.get(retval);
                 if (!deletedMode.editable) {
-                    Toast.makeText(getApplicationContext(), String.format("Mode '%s' cannot be deleted", deletedMode.name), Toast.LENGTH_SHORT).show();
+                    makeToast(String.format("Mode '%s' cannot be deleted", deletedMode.name));
                 } else {
                     _delete_mode(deletedMode, true);
-                    Toast.makeText(getApplicationContext(), String.format("Mode '%s' has been deleted", deletedMode.name), Toast.LENGTH_SHORT).show();
+                    makeToast(String.format("Mode '%s' has been deleted", deletedMode.name));
                 }
                 break;
             case SET_MIN_PEDAL_DIALOG:
                 if (retval > 100 || retval < 0){
-                    Toast.makeText(getApplicationContext(), "Pick a value between 0 and 100", Toast.LENGTH_SHORT).show();
+                    makeToast("Pick a value between 0 and 100");
                 }else{
                     pedal_threshold = retval;
                     Log.i(TAG, String.format("onFinishEditDialog: new pedal threshold: %d%%",retval));
@@ -264,7 +279,7 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
                     // Add new_mode to the private XML
                     _save_mode(new_mode);
                     assert new_mode != null;
-                    Toast.makeText(getApplicationContext(), String.format("'%s' added", new_mode.name), Toast.LENGTH_SHORT).show();
+                    makeToast(String.format("'%s' added", new_mode.name));
                 }
                 break;
             case 1:
@@ -285,7 +300,7 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
                         _save_mode(new_mode);
                     }
                     assert new_mode != null;
-                    Toast.makeText(getApplicationContext(), String.format("'%s' updated", new_mode.name), Toast.LENGTH_SHORT).show();
+                    makeToast(String.format("'%s' updated", new_mode.name));
                 }
                 else {
                     if (current_mode != null) {
@@ -398,7 +413,7 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
         for (Mode mode:ModeList) {
             if (mode.name == (mode_button.getText())){
                 if (!mode.editable){
-                    Toast.makeText(getApplicationContext(), String.format("Mode '%s' cannot be edited", mode.name), Toast.LENGTH_SHORT).show();
+                    makeToast(String.format("Mode '%s' cannot be edited", mode.name));
                     return;
                 }
                 b.putSerializable("existingMode", mode);
@@ -423,7 +438,7 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
                 button.setChecked(true);
                 selected_mode_button = button.getId();
             }
-            button.setMinHeight(175);
+            button.setMinHeight(250);
             button.setOnClickListener(modeOnClickListener);
             button.setOnLongClickListener(modeOnLongClickListener);
             button.setAllCaps(false);
@@ -636,13 +651,16 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
         {
             case CONNECTED:
                 bt_service.disconnect();
-                Toast.makeText(getApplicationContext(),"Disconnected from OpenHaldex32",Toast.LENGTH_SHORT).show();
+                makeToast("Disconnected from OpenHaldex32");
 
                 btStatus.removeCallbacks(btStatusRunnable);
                 modeCheck.removeCallbacks(modeCheckRunnable);
                 lockPointCheck.removeCallbacks(lockPointCheckRunnable);
                 break;
             case NONE:
+                ToggleButton button = (ToggleButton)view;
+                button.setChecked(false);
+
                 startBT();
                 bt_status_task();
                 break;
@@ -697,10 +715,10 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
                             mode_button_click(mode_button_container.getChildAt(interceptor_mode));
                         }
                         else{
-                            Toast.makeText(getApplicationContext(), "Connected with custom mode active.. select stock mode",Toast.LENGTH_SHORT).show();
+                            makeToast( "Connected with custom mode active.. select stock mode");
                             mode_button_click(mode_button_container.getChildAt(0));
                         }
-                        Toast.makeText(getApplicationContext(), String.format(Locale.ENGLISH, "Pedal threshold for Haldex activation set to %d%%", pedal_threshold),Toast.LENGTH_SHORT).show();
+                        makeToast(String.format(Locale.ENGLISH, "Pedal threshold for Haldex activation set to %d%%", pedal_threshold));
                         break;
                 }
             default:
@@ -718,7 +736,8 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
 
         if (current_mode != null){
             try{
-                bt_service.write(new byte[]{APP_MSG_MODE, current_mode.id, (byte)pedal_threshold, (byte)SERIAL_FRAME_END});
+                bt_service.write(new byte[]{APP_MSG_MODE, current_mode.id, (byte)pedal_threshold, SERIAL_FRAME_END});
+                Log.i(TAG, String.format("Sent mode ID %d, ped_threshold %d%%", current_mode.id, (byte)pedal_threshold));
             }catch (Exception e){
                 e.printStackTrace();
             }
@@ -759,17 +778,19 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
                             }
                         }
                         checkLockPoints();
-                        sendData.postDelayed(sendDataRunnable, 5000);
+                        sendData.postDelayed(sendDataRunnable, 500);
                     }catch (Exception e){
                         e.printStackTrace();
                     }
                 }
                 else if (custom_ready){
                     sendData.removeCallbacks(sendDataRunnable);
+                    current_mode = mode;
+                    Log.i(TAG, String.format("Sent custom mode '%s' to interceptor, current_mode is %d", mode.name, current_mode.id));
                     sendMode();
                 }
                 else {
-                    Toast.makeText(getApplicationContext(), "Failed setting custom mode!!", Toast.LENGTH_SHORT).show();
+                    makeToast("Failed setting custom mode!!");
                 }
             }
         }, 0);
@@ -798,58 +819,65 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
                 if (grantResults.length > 0 &&
                         grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                     Log.i(TAG, String.format("startBT: permission %d granted!", requestCode));
-                    //startBT();
+                    startBT();
                 } else {
-                    Toast.makeText(getApplicationContext(),"Bluetooth permission not granted",Toast.LENGTH_SHORT).show();
+                    makeToast("Bluetooth permission not granted");
                 }
         }
     }
 
+    private boolean checkPermission(String permission, int requestCode)
+    {
+        if (ContextCompat.checkSelfPermission(MainActivity.this, permission) == PackageManager.PERMISSION_DENIED)
+        {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+            {
+                ActivityCompat.requestPermissions(MainActivity.this, new String[]{permission}, requestCode);
+            }
+            else
+            {
+                Log.i(TAG, String.format("startBT: failed to request permission %d", requestCode));
+            }
+            return false;
+        }else{
+            Log.i(TAG, String.format("startBT: already have permission %d", requestCode));
+            return true;
+        }
+    }
+
+    private boolean checkBTStatus()
+    {
+        BluetoothAdapter bt_adaptor = BluetoothAdapter.getDefaultAdapter();
+        if (bt_adaptor == null)
+        {
+            makeToast("Bluetooth is not supported by this device");
+            Log.i(TAG, "startBT: BT not supported");
+        }
+        else if (!bt_adaptor.isEnabled())
+        {
+            makeToast("Bluetooth is not enabled");
+            Log.i(TAG, "startBT: BT not enabled");
+        }
+        else
+        {
+            return true;
+        }
+
+        ToggleButton button = findViewById(R.id.connect_button);
+        button.setChecked(false);
+        return false;
+    }
+
     private void startBT(){
-        if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_DENIED)
-        {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
-            {
-                ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.BLUETOOTH}, 2);
-                return;
-            }
-        }else{
-            Log.i(TAG, String.format("startBT: already have permission %d", 2));
-        }
 
-        if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.BLUETOOTH) == PackageManager.PERMISSION_DENIED)
-        {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
-            {
-                ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.BLUETOOTH_CONNECT}, 3);
-                return;
-            }
-        }else{
-            Log.i(TAG, String.format("startBT: already have permission %d", 3));
-        }
 
-        if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_DENIED)
+        if (checkBTStatus() &&
+            checkPermission(Manifest.permission.BLUETOOTH, 2) &&
+            checkPermission(Manifest.permission.BLUETOOTH_CONNECT, 3) &&
+            checkPermission(Manifest.permission.BLUETOOTH_SCAN, 4) &&
+            checkPermission(Manifest.permission.BLUETOOTH_ADVERTISE, 5))
         {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
-            {
-                ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.BLUETOOTH_SCAN}, 4);
-                return;
-            }
-        }else{
-            Log.i(TAG, String.format("startBT: already have permission %d", 4));
+            bt_service.startScan();
         }
-
-        if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.BLUETOOTH_ADVERTISE) == PackageManager.PERMISSION_DENIED)
-        {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
-            {
-                ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.BLUETOOTH_ADVERTISE}, 5);
-                return;
-            }
-        }else{
-            Log.i(TAG, String.format("startBT: already have permission %d", 5));
-        }
-
-        bt_service.startScan();
     }
 }

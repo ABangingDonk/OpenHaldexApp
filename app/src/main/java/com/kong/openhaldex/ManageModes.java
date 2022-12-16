@@ -114,6 +114,7 @@ public class ManageModes extends AppCompatActivity {
 
         new_mode.name = new_mode_name;
         new_mode.editable = true;
+        new_mode.id = 3;
 
         for (int i = 0; i < (lockpoint_container.getChildCount() - 1); i++){
             new_mode.lockPoints.add(((LockpointView)(lockpoint_container.getChildAt(i))).lockPoint);
