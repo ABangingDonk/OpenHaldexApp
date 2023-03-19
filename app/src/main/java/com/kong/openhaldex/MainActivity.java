@@ -20,11 +20,15 @@ import androidx.fragment.app.FragmentTransaction;
 import androidx.appcompat.app.AppCompatActivity;
 import android.os.Bundle;
 import android.os.SystemClock;
+import android.text.Editable;
+import android.text.Layout;
 import android.util.Log;
 import android.view.View;
 import android.view.Window;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.ToggleButton;
@@ -48,6 +52,7 @@ import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.util.ArrayList;
 import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 
 public class MainActivity extends AppCompatActivity implements DeleteModeFragment.DialogListener, SetMinPedalFragment.DialogListener {
@@ -69,6 +74,7 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
     private static boolean custom_ready = false;
     private static int retries = 3;
     Toast toastMessage;
+    private boolean logs_shown = false;
 
     Handler btStatus = new Handler();
     Runnable btStatusRunnable;
@@ -85,6 +91,22 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
 
     public ArrayList<Mode> ModeList;
 
+    private void addLog(String message)
+    {
+        TextView logs = findViewById(R.id.log_text);
+
+        Log.i(TAG, message);
+
+        logs.append(message + "\n");
+        final Layout layout = logs.getLayout();
+        if(layout != null){
+            int scrollDelta = layout.getLineBottom(logs.getLineCount() - 1)
+                    - logs.getScrollY() - logs.getHeight();
+            if(scrollDelta > 0)
+                logs.scrollBy(0, scrollDelta);
+        }
+    }
+
     private void makeToast(String message)
     {
         if (toastMessage != null)
@@ -93,6 +115,8 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
         }
         toastMessage = Toast.makeText(getApplicationContext(), message, Toast.LENGTH_SHORT);
         toastMessage.show();
+
+        addLog(message);
     }
 
     @Override
@@ -124,7 +148,7 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
             public void onDeviceDiscovered(BluetoothDevice device, int rssi) {
                 if (device != null && device.getName() != null){
                     if (device.getName().equals("OpenHaldex32") || device.getName().equals("OpenHaldexT4")){
-                        Log.i(TAG, String.format("startBT: device name = %s, RSSI = %d", device.getName(), rssi));
+                        addLog(String.format("startBT: device name = %s, RSSI = %d", device.getName(), rssi));
                         bt_device = device;
                         bt_service.connect(device);
                     }
@@ -140,9 +164,7 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
             }
 
             @Override
-            public void onStopScan() {
-                makeToast("Finished searching");
-            }
+            public void onStopScan() { }
         });
 
         bt_service.setOnEventCallback(new BluetoothService.OnBluetoothEventCallback() {
@@ -154,14 +176,12 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
             @Override
             public void onStatusChange(BluetoothStatus status) {
                 if (status == BluetoothStatus.CONNECTED){
-                    Log.i(TAG, "startBT: connected");
                     makeToast("Connected to OpenHaldex");
                 } else if (status == BluetoothStatus.CONNECTING){
-                    Log.i(TAG, "startBT: connecting....");
+                    makeToast("Found OpenHaldex, connecting...");
                 } else {
                     ToggleButton button = findViewById(R.id.connect_button);
                     button.setChecked(false);
-                    makeToast("Disconnected from OpenHaldex");
 
                     btStatus.removeCallbacks(btStatusRunnable);
                     modeCheck.removeCallbacks(modeCheckRunnable);
@@ -254,7 +274,7 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
                     makeToast("Pick a value between 0 and 100");
                 }else{
                     pedal_threshold = retval;
-                    Log.i(TAG, String.format("onFinishEditDialog: new pedal threshold: %d%%",retval));
+                    addLog(String.format("onFinishEditDialog: new pedal threshold: %d%%",retval));
                 }
                 break;
         }
@@ -376,6 +396,37 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
         }
     };
 
+    private final View.OnLongClickListener barOnLongClickListener = new View.OnLongClickListener() {
+        @Override
+        public boolean onLongClick(View v) {
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    0,
+                    0
+            );
+
+            TextView logs = findViewById(R.id.log_text);
+            ScrollView modes = findViewById(R.id.mode_scroller);
+            // Hide logs
+            if (logs_shown)
+            {
+                logs.setVisibility(View.GONE);
+                params.weight = 0.7f;
+                modes.setLayoutParams(params);
+                logs_shown = false;
+            }
+            // Show logs
+            else
+            {
+                logs.setVisibility(View.VISIBLE);
+                params.weight = 0.4f;
+                modes.setLayoutParams(params);
+                logs_shown = true;
+            }
+            return true;
+        }
+    };
+
     public void mode_button_click(View view){
         ToggleButton previous_selection = findViewById(selected_mode_button);
 
@@ -447,11 +498,14 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
             mode_button_container.addView(button);
         }
         // Select the first mode in the list
-        if (false && current_mode == null && unknown_mode){
+        if (current_mode == null && unknown_mode){
             selected_mode_button = mode_button_container.getChildAt(0).getId();
             ToggleButton button = findViewById(selected_mode_button);
             button.setChecked(true);
         }
+
+        ProgressBar lock_percent_bar = findViewById(R.id.lock_percent_bar);
+        lock_percent_bar.setOnLongClickListener(barOnLongClickListener);
     }
 
     private boolean _getModes() {
@@ -602,6 +656,9 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
                     button.setChecked(true);
                     sendMode();
                 }
+                else {
+                    addLog(String.format("startBT: not yet connected.. (%d)", bt_service.getStatus().ordinal()));
+                }
 
                 if(current_mode == null && unknown_mode){
                     try{
@@ -646,23 +703,37 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
         }, displayUpdateDelay);
     }
 
+    static boolean connecting = false;
     public void connect_button_click(View view){
         switch (bt_service.getStatus())
         {
             case CONNECTED:
-                bt_service.disconnect();
-                makeToast("Disconnected from OpenHaldex32");
-
                 btStatus.removeCallbacks(btStatusRunnable);
                 modeCheck.removeCallbacks(modeCheckRunnable);
                 lockPointCheck.removeCallbacks(lockPointCheckRunnable);
+
+                bt_service.disconnect();
+                makeToast("Disconnected from OpenHaldex");
                 break;
             case NONE:
                 ToggleButton button = (ToggleButton)view;
                 button.setChecked(false);
+                if (!connecting)
+                {
+                    connecting = true;
 
-                startBT();
-                bt_status_task();
+                    startBT();
+                    bt_status_task();
+                }
+                else
+                {
+                    connecting = false;
+
+                    btStatus.removeCallbacks(btStatusRunnable);
+                    modeCheck.removeCallbacks(modeCheckRunnable);
+                    lockPointCheck.removeCallbacks(lockPointCheckRunnable);
+                    bt_service.disconnect();
+                }
                 break;
             default:
         }
@@ -696,7 +767,7 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
                 haldex_lock = (char)((data[2] & 0x7f) * 100 / 72);
                 target_lock = (char)data[3];
                 vehicle_speed = (char)((int)data[4] & 0xff);
-                Log.i(TAG, String.format("Got status from OpenHaldex32 %d", (SystemClock.elapsedRealtime() - last_status_time)));
+                //addLog(String.format("Got status from OpenHaldex32 %d", (SystemClock.elapsedRealtime() - last_status_time)));
                 last_status_time = SystemClock.elapsedRealtime();
                 break;
             case APP_MSG_CUSTOM_CTRL: // 3
@@ -705,7 +776,7 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
                     case DATA_CTRL_CHECK_LOCKPOINTS:
                         int lockpoint_check_mask_l = data[2];
                         int lockpoint_check_mask_h = data[3];
-                        Log.i(TAG, String.format("lockpoint check: check_l 0x%x mask_l 0x%x check_h 0x%x mask_h 0x%x", lockpoint_check_mask_l, lockpoint_bitmask_l, lockpoint_check_mask_h, lockpoint_bitmask_h));
+                        addLog(String.format("lockpoint check: check_l 0x%x mask_l 0x%x check_h 0x%x mask_h 0x%x", lockpoint_check_mask_l, lockpoint_bitmask_l, lockpoint_check_mask_h, lockpoint_bitmask_h));
                         custom_ready = (lockpoint_check_mask_l == lockpoint_bitmask_l) && (lockpoint_check_mask_h == lockpoint_bitmask_h);
                         break;
                     case DATA_CTRL_CHECK_MODE:
@@ -737,7 +808,7 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
         if (current_mode != null){
             try{
                 bt_service.write(new byte[]{APP_MSG_MODE, current_mode.id, (byte)pedal_threshold, SERIAL_FRAME_END});
-                Log.i(TAG, String.format("Sent mode ID %d, ped_threshold %d%%", current_mode.id, (byte)pedal_threshold));
+                addLog(String.format("Sent mode ID %d, ped_threshold %d%%", current_mode.id, (byte)pedal_threshold));
             }catch (Exception e){
                 e.printStackTrace();
             }
@@ -786,7 +857,7 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
                 else if (custom_ready){
                     sendData.removeCallbacks(sendDataRunnable);
                     current_mode = mode;
-                    Log.i(TAG, String.format("Sent custom mode '%s' to interceptor, current_mode is %d", mode.name, current_mode.id));
+                    addLog(String.format("Sent custom mode '%s' to interceptor, current_mode is %d", mode.name, current_mode.id));
                     sendMode();
                 }
                 else {
@@ -810,20 +881,25 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
     public void onRequestPermissionsResult(int requestCode, String[] permissions,
                                            int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        switch (requestCode) {
-            case 2:
-            case 3:
-            case 4:
-            case 5:
-                // If request is cancelled, the result arrays are empty.
-                if (grantResults.length > 0 &&
-                        grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                    Log.i(TAG, String.format("startBT: permission %d granted!", requestCode));
-                    startBT();
-                } else {
-                    makeToast("Bluetooth permission not granted");
-                }
+
+        // If request is cancelled, the result arrays are empty.
+        if (grantResults.length > 0 &&
+                grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            addLog(String.format("startBT: permission %d granted!", requestCode));
+            startBT();
+        } else {
+            makeToast("Bluetooth permission not granted");
         }
+    }
+
+    private enum rq_codes
+    {
+        BLUETOOTH,
+        BLUETOOTH_CONNECT,
+        BLUETOOTH_SCAN,
+        BLUETOOTH_ADVERTISE,
+        BLUETOOTH_ADMIN,
+        ACCESS_FINE_LOCATION
     }
 
     private boolean checkPermission(String permission, int requestCode)
@@ -833,14 +909,29 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
             {
                 ActivityCompat.requestPermissions(MainActivity.this, new String[]{permission}, requestCode);
+                return false;
             }
-            else
+
+            if (requestCode == rq_codes.BLUETOOTH.ordinal())
             {
-                Log.i(TAG, String.format("startBT: failed to request permission %d", requestCode));
+                makeToast("App does not have Bluetooth permission!");
+                return false;
             }
-            return false;
+            else if (requestCode == rq_codes.BLUETOOTH_ADMIN.ordinal())
+            {
+                makeToast("App does not have Bluetooth admin permission!");
+                return false;
+            }
+            if (requestCode == rq_codes.ACCESS_FINE_LOCATION.ordinal())
+            {
+                makeToast("App does not have location permission!");
+                return false;
+            }
+
+            return true;
+
         }else{
-            Log.i(TAG, String.format("startBT: already have permission %d", requestCode));
+            addLog(String.format("startBT: granted permission %d", requestCode));
             return true;
         }
     }
@@ -851,12 +942,10 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
         if (bt_adaptor == null)
         {
             makeToast("Bluetooth is not supported by this device");
-            Log.i(TAG, "startBT: BT not supported");
         }
         else if (!bt_adaptor.isEnabled())
         {
             makeToast("Bluetooth is not enabled");
-            Log.i(TAG, "startBT: BT not enabled");
         }
         else
         {
@@ -869,13 +958,26 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
     }
 
     private void startBT(){
-        if (checkBTStatus() &&
-            checkPermission(Manifest.permission.BLUETOOTH, 2) &&
-            checkPermission(Manifest.permission.BLUETOOTH_CONNECT, 3) &&
-            checkPermission(Manifest.permission.BLUETOOTH_SCAN, 4) &&
-            checkPermission(Manifest.permission.BLUETOOTH_ADVERTISE, 5))
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
         {
-            bt_service.startScan();
+            if (checkBTStatus() &&
+                checkPermission(Manifest.permission.BLUETOOTH, rq_codes.BLUETOOTH.ordinal()) &&
+                checkPermission(Manifest.permission.BLUETOOTH_CONNECT, rq_codes.BLUETOOTH_CONNECT.ordinal()) &&
+                checkPermission(Manifest.permission.BLUETOOTH_SCAN, rq_codes.BLUETOOTH_SCAN.ordinal()) &&
+                checkPermission(Manifest.permission.BLUETOOTH_ADVERTISE, rq_codes.BLUETOOTH_ADVERTISE.ordinal()))
+            {
+                bt_service.startScan();
+            }
+        }
+        else
+        {
+            if (checkBTStatus() &&
+                checkPermission(Manifest.permission.BLUETOOTH, rq_codes.BLUETOOTH.ordinal()) &&
+                checkPermission(Manifest.permission.BLUETOOTH_ADMIN, rq_codes.BLUETOOTH_ADMIN.ordinal()) &&
+                checkPermission(Manifest.permission.ACCESS_FINE_LOCATION, rq_codes.ACCESS_FINE_LOCATION.ordinal()))
+            {
+                bt_service.startScan();
+            }
         }
     }
 }
