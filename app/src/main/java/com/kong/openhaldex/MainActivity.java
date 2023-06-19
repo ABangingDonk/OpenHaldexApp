@@ -23,8 +23,11 @@ import android.os.SystemClock;
 import android.text.Editable;
 import android.text.Layout;
 import android.util.Log;
+import android.view.Gravity;
 import android.view.View;
 import android.view.Window;
+import android.view.WindowManager;
+import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -66,6 +69,7 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
     private static char haldex_status = 0;
     private static char target_lock = 0;
     private static char vehicle_speed = 0;
+    private static boolean mode_override = false;
     private static int lockpoint_bitmask_l = 0;
     private static int lockpoint_bitmask_h = 0;
     private static int pedal_threshold = 0;
@@ -81,7 +85,7 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
     int btStatusDelay = 500;
     Handler displayUpdate = new Handler();
     Runnable displayUpdateRunnable;
-    int displayUpdateDelay = 100;
+    int displayUpdateDelay = 10;
     Handler modeCheck = new Handler();
     Runnable modeCheckRunnable;
     Handler lockPointCheck = new Handler();
@@ -124,7 +128,7 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
         super.onCreate(savedInstanceState);
 
         supportRequestWindowFeature(Window.FEATURE_NO_TITLE);
-        //getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
         setContentView(R.layout.activity_main);
 
@@ -170,7 +174,9 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
         bt_service.setOnEventCallback(new BluetoothService.OnBluetoothEventCallback() {
             @Override
             public void onDataRead(byte[] buffer, int length) {
-                receiveData(buffer, length);
+                if (bt_service.getStatus() != BluetoothStatus.NONE) {
+                    receiveData(buffer, length);
+                }
             }
 
             @Override
@@ -179,13 +185,6 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
                     makeToast("Connected to OpenHaldex");
                 } else if (status == BluetoothStatus.CONNECTING){
                     makeToast("Found OpenHaldex, connecting...");
-                } else {
-                    ToggleButton button = findViewById(R.id.connect_button);
-                    button.setChecked(false);
-
-                    btStatus.removeCallbacks(btStatusRunnable);
-                    modeCheck.removeCallbacks(modeCheckRunnable);
-                    lockPointCheck.removeCallbacks(lockPointCheckRunnable);
                 }
             }
 
@@ -396,6 +395,13 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
         }
     };
 
+    private final View.OnClickListener reconnectOnClickListener = new View.OnClickListener() {
+        @Override
+        public void onClick(View v) {
+            sendReconnectRequest();
+        }
+    };
+
     private final View.OnLongClickListener barOnLongClickListener = new View.OnLongClickListener() {
         @Override
         public boolean onLongClick(View v) {
@@ -429,6 +435,11 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
 
     public void mode_button_click(View view){
         ToggleButton previous_selection = findViewById(selected_mode_button);
+
+        if (mode_override)
+        {
+            return;
+        }
 
         if(selected_mode_button != view.getId() || current_mode == null) {
             if(previous_selection != null && previous_selection.getId() != view.getId()){
@@ -529,6 +540,39 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
         _createModeButtons();
 
         return true;
+    }
+
+    private void sendReconnectRequest(){
+        try{
+            bt_service.write(new byte[]{APP_MSG_CUSTOM_CTRL, DATA_CTRL_RECONNECT_BT, SERIAL_FRAME_END});
+        }catch (Exception e){
+            e.printStackTrace();
+        }
+    }
+
+    private void mode_overridden()
+    {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+
+        LinearLayout mode_button_container = findViewById(R.id.mode_button_container);
+        mode_button_container.removeAllViewsInLayout();
+
+        TextView message = new TextView(this);
+        message.setText("Mode selection overridden by physical buttons, select stock mode before assuming control.");
+        message.setGravity(Gravity.CENTER);
+        message.setMinHeight(250);
+        message.setLayoutParams(params);
+        mode_button_container.addView(message);
+
+        Button button = new Button(this);
+        button.setId(View.generateViewId());
+        button.setText("Assume control");
+
+        button.setMinHeight(250);
+        button.setOnClickListener(reconnectOnClickListener);
+        button.setAllCaps(false);
+        button.setLayoutParams(params);
+        mode_button_container.addView(button);
     }
 
     private ArrayList<Mode> parseXML(XmlPullParser parser) throws XmlPullParserException, IOException {
@@ -654,6 +698,8 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
                 if (bt_service.getStatus() == BluetoothStatus.CONNECTED){
                     ToggleButton button = findViewById(R.id.connect_button);
                     button.setChecked(true);
+                    disconnected = false;
+                    connecting = false;
                     sendMode();
                 }
                 else {
@@ -690,7 +736,7 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
                 {
                     haldex_status_label.setText(String.format(Locale.ENGLISH,"Actual: %d%%", (int)haldex_lock));
                 }
-                if(current_mode == null || current_mode.name.equals("Stock")){
+                if(current_mode == null || current_mode.name.equals("Stock") || mode_override){
                     target_lock_label.setText("");
                 }
                 else{
@@ -704,38 +750,38 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
     }
 
     static boolean connecting = false;
+    static boolean disconnected = true;
     public void connect_button_click(View view){
-        switch (bt_service.getStatus())
-        {
-            case CONNECTED:
+        if (!disconnected) {
+            btStatus.removeCallbacks(btStatusRunnable);
+            modeCheck.removeCallbacks(modeCheckRunnable);
+            lockPointCheck.removeCallbacks(lockPointCheckRunnable);
+
+            bt_service.disconnect();
+            disconnected = true;
+            makeToast("Disconnected from OpenHaldex");
+
+        }
+        else {
+            ToggleButton button = (ToggleButton)view;
+            button.setChecked(false);
+            if (!connecting)
+            {
+                connecting = true;
+
+                startBT();
+                bt_status_task();
+            }
+            else
+            {
+                connecting = false;
+
                 btStatus.removeCallbacks(btStatusRunnable);
                 modeCheck.removeCallbacks(modeCheckRunnable);
                 lockPointCheck.removeCallbacks(lockPointCheckRunnable);
-
                 bt_service.disconnect();
-                makeToast("Disconnected from OpenHaldex");
-                break;
-            case NONE:
-                ToggleButton button = (ToggleButton)view;
-                button.setChecked(false);
-                if (!connecting)
-                {
-                    connecting = true;
-
-                    startBT();
-                    bt_status_task();
-                }
-                else
-                {
-                    connecting = false;
-
-                    btStatus.removeCallbacks(btStatusRunnable);
-                    modeCheck.removeCallbacks(modeCheckRunnable);
-                    lockPointCheck.removeCallbacks(lockPointCheckRunnable);
-                    bt_service.disconnect();
-                }
-                break;
-            default:
+                disconnected = true;
+            }
         }
     }
 
@@ -747,16 +793,18 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
     private final int DATA_CTRL_CHECK_LOCKPOINTS = 0;
     private final int DATA_CTRL_CLEAR = 1;
     private final int DATA_CTRL_CHECK_MODE = 2;
+    private final int DATA_CTRL_RECONNECT_BT = 3;
 
     private final byte SERIAL_FRAME_END = (byte)0xff;
 
     long last_status_time = SystemClock.elapsedRealtime();
 
+    @SuppressLint("DefaultLocale")
     private int receiveData(byte[] data, int len){
         int message_type = -1;
         LinearLayout mode_button_container = findViewById(R.id.mode_button_container);
 
-        if (len > 5){
+        if (len > 6){
             return message_type;
         }
 
@@ -767,7 +815,20 @@ public class MainActivity extends AppCompatActivity implements DeleteModeFragmen
                 haldex_lock = (char)((data[2] & 0x7f) * 100 / 72);
                 target_lock = (char)data[3];
                 vehicle_speed = (char)((int)data[4] & 0xff);
-                //addLog(String.format("Got status from OpenHaldex32 %d", (SystemClock.elapsedRealtime() - last_status_time)));
+                boolean new_mode_override = data[5] != 0;
+                if (mode_override != new_mode_override)
+                {
+                    mode_override = new_mode_override;
+                    if (mode_override)
+                    {
+                        mode_overridden();
+                    }
+                    else
+                    {
+                        _getModes();
+                    }
+                }
+                //addLog(String.format("APP_MSG_STATUS: [%x %x %x %x %x]", data[1], data[2], data[3], data[4], data[5]));
                 last_status_time = SystemClock.elapsedRealtime();
                 break;
             case APP_MSG_CUSTOM_CTRL: // 3
